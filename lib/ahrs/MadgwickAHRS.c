@@ -300,6 +300,8 @@ void MadgwickGetEulerAngles(float *heading, float *pitch, float *roll, Madgwick_
   float xx = q1 * q1;
   float yy = q2 * q2;
   float zz = q3 * q3;
+  
+  
   // changed according to https://www.euclideanspace.com/maths/geometry/rotations/conversions/quaternionToEuler/
   double test = q0 * q1 + q2 * q3;
   if (test > 0.499)
@@ -319,11 +321,12 @@ void MadgwickGetEulerAngles(float *heading, float *pitch, float *roll, Madgwick_
   }
 
   // *heading = norm_angle_0_2pi(atan2f(2.0 * (q1 * q2 + q3 * q0), xx - yy - zz + ww));
-  *heading = atan2(2.0 * (q2 * q3 + q1 * q0), 1 - 2 * (yy + zz));
-  // *pitch = asinf(-2.0 * (q1 * q3 - q2 * q0));
-  *pitch = 2 * atan2(sqrt(1 + 2 * (q3 * q1 - q0 * q2)), sqrt(1 - 2 * (q3 * q2 - q0 * q2))) - M_PI_2;
+  // *pitch = 2 * atan2(sqrt(1 + 2 * (q3 * q1 - q0 * q2)), sqrt(1 - 2 * (q3 * q2 - q0 * q2))) - M_PI_2;
   // *roll = atan2(2.0 * (q2 * q3 + q1 * q0), -xx - yy + zz + ww);
-  *roll = atan2f(2.0 * (q1 * q2 + q3 * q0), 1 - 2 * (xx - yy));
+
+  *heading = atan2(2.0 * (q0 * q3 + q1 * q2), 1 - 2 * (yy + zz));
+  *pitch = asinf(2.0 * ( q2 * q0 - q1 * q3));
+  *roll = atan2f(2.0 * (q1 * q0 + q3 * q2), 1 - 2 * (xx + yy));
 }
 
 /**

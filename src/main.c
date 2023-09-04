@@ -35,6 +35,7 @@
 #include "../lib/mpu9250/mpu9250.h"
 #include "../lib/mpu9250/calibrate.h"
 #include "../lib/mpu9250/common.h"
+#include "../lib/testing/data_spawner.h"
 
 static const char *TAG = "main";
 
@@ -67,10 +68,11 @@ typedef struct
 calibration_t cal_1 = {
     .mag_offset = {.x = -38.114082, .y = -89.604561, .z = 89.840302},
     .mag_scale = {.x = 1.00, .y = 1.00, .z = 1.00},
-    .accel_offset = {.x = 0.020957, .y = -0.010702, .z = -0.076799},
-    .accel_scale_lo = {.x = 0.997999, .y = 1.006540, .z = 0.978607},
-    .accel_scale_hi = {.x = 1.000681, .y = 0.992735, .z = 1.036189},
-    .gyro_bias_offset = {.x = -4.035060, .y = 0.375435, .z = 0.174855}};
+    .accel_offset = {.x = 0.002456, .y = 0.005308, .z = -0.048982},
+    .accel_scale_lo = {.x = 0.999159, .y = 1.005793, .z = 0.983132},
+    .accel_scale_hi = {.x = -1.001248, .y = -0.998091, .z = -1.035969},
+    .gyro_bias_offset = {.x = -3.995865, .y = 0.341634, .z = 0.174921}
+};
 
 calibration_t cal_2 = {
     .mag_offset = {.x = -38.114082, .y = -89.604561, .z = 89.840302},
@@ -87,6 +89,7 @@ calibration_t cal_2 = {
  * @param  {object} s {x,y,z} sensor
  * @return {object}   {x,y,z} transformed
  */
+
 static void transform_accel_gyro(vector_t *v)
 {
   float x = v->x;
@@ -115,12 +118,16 @@ static void transform_mag(vector_t *v)
 }
 void run_imu(int i2c_port_num, int i2c_addr, int imu_i2c_sda, int imu_i2c_scl, state_container *mpu_state, int imu_number, Madgwick_state *madgwick_state)
 {
+  int64_t prev_time = esp_timer_get_time();
+  int64_t time = 0;
+
+  int j =0;
+  uint64_t i = 0;
   while (true)
   {
     i2c_mpu9250_init(&cal_1, i2c_port_num, imu_i2c_sda, imu_i2c_scl, mpu_state, i2c_addr);
     // madgwick_state = MadgwickAHRSinit(madgwick_state);
 
-    uint64_t i = 0;
     while (true)
     {
       vector_t va, vg, vm;
@@ -132,11 +139,16 @@ void run_imu(int i2c_port_num, int i2c_addr, int imu_i2c_sda, int imu_i2c_scl, s
         i2c_reset_tx_fifo(i2c_port_num);
         break;
       }
-
       // Transform these values to the orientation of our device.
-      // transform_accel_gyro(&va);
-      // transform_accel_gyro(&vg);
-      // transform_mag(&vm);
+      transform_accel_gyro(&va);
+      transform_accel_gyro(&vg);
+      transform_mag(&vm);
+      if (j==1000){
+        time = esp_timer_get_time();
+        madgwick_state->sampleFreq = 1000000000.0/(time-prev_time);
+        ESP_LOGI(TAG, "Freq updated %f",madgwick_state->sampleFreq);
+        j = 0;
+      }
 
       // Apply the AHRS algorithm
       madgwick_state = MadgwickAHRSupdate(DEG2RAD(vg.x), DEG2RAD(vg.y), DEG2RAD(vg.z),
@@ -152,15 +164,15 @@ void run_imu(int i2c_port_num, int i2c_addr, int imu_i2c_sda, int imu_i2c_scl, s
           break;
         }
 
-        ESP_LOGI(TAG, "{\"imu_number\": %d, \"q0\": %2.3f, \"q1\": %2.3f, \"q2\": %2.3f, \"q3\": %2.3f}", imu_number, madgwick_state->q->q0, madgwick_state->q->q1, madgwick_state->q->q2, madgwick_state->q->q3);
-        // float heading, pitch, roll;
-        // MadgwickGetEulerAnglesDegrees(&heading, &pitch, &roll, madgwick_state);
-        // ESP_LOGI(TAG, "{\"imu number\": %d, \"yaw\": %2.3f, \"pitch\": %2.3f, \"roll\": %2.3f, \"Temp\": %2.3f}", imu_number, heading, pitch, roll, temp);
+        // ESP_LOGI(TAG, "{\"imu_number\": %d, \"q0\": %2.3f, \"q1\": %2.3f, \"q2\": %2.3f, \"q3\": %2.3f}", imu_number, madgwick_state->q->q0, madgwick_state->q->q1, madgwick_state->q->q2, madgwick_state->q->q3);
+        float yaw, pitch, roll;
+        MadgwickGetEulerAnglesDegrees(&yaw, &pitch, &roll, madgwick_state);
+        ESP_LOGI(TAG, "{\"imu_number\": %d, \"yaw\": %2.3f, \"pitch\": %2.3f, \"roll\": %2.3f, \"Temp\": %2.3f}", imu_number, yaw, pitch, roll, temp);
 
         // Make the WDT happy
         esp_task_wdt_reset();
       }
-
+      j++;
       pause();
     }
     ESP_LOGI(TAG, "i2c failed, restarting");
@@ -199,6 +211,7 @@ state_container state_2_magn = {.i2c_num = I2C_NUM_1, .mag_offset = &cal_2.mag_o
 
 IMU_CONF imu_1_conf = {.imu_number = 0, .i2c_port_num = I2C_NUM_0, .i2c_addr = 0x68, .imu_i2c_sda = IMU_1_I2C_MASTER_SDA_IO, .imu_i2c_scl = IMU_1_I2C_MASTER_SCL_IO, .mpu_state = &state_1_magn, .madgwick_state = &madgwick_state_1};
 IMU_CONF imu_2_conf = {.imu_number = 1, .i2c_port_num = I2C_NUM_1, .i2c_addr = 0x69, .imu_i2c_sda = IMU_2_I2C_MASTER_SDA_IO, .imu_i2c_scl = IMU_2_I2C_MASTER_SCL_IO, .mpu_state = &state_2_magn, .madgwick_state = &madgwick_state_2};
+
 void app_main(void)
 {
 
